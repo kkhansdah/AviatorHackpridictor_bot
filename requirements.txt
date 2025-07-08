@@ -3,3 +3,8 @@ requests
 beautifulsoup4
 playwright
 asyncio
+python-dotenv
+pytesseract
+opencv-python
+numpy
+Pillow
