@@ -1,21 +1,16 @@
 import os
-import json
-import pytesseract
 from dotenv import load_dotenv
-from PIL import Image
-import cv2
-import numpy as np
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
+from predictor import predict_from_multipliers
+from ocr_reader import extract_multipliers_from_image
+import json
 
-# Load .env
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-
 ACCURACY_FILE = "accuracy.json"
 
-# ===== Accuracy Tracker =====
 def load_accuracy():
     if not os.path.exists(ACCURACY_FILE):
         with open(ACCURACY_FILE, "w") as f:
@@ -27,72 +22,44 @@ def save_accuracy(data):
     with open(ACCURACY_FILE, "w") as f:
         json.dump(data, f)
 
-# ===== /start =====
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🙏 नमस्ते! Aviator Predictor Bot चालू है!\n/predict या /ocr भेजो!")
+async def start(update: Update, context):
+    await update.message.reply_text("✈️ Aviator Predictor Bot चालू हो गया!")
 
-# ===== /predict manually =====
-async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 5:
-        await update.message.reply_text("❌ कम से कम 5 multipliers भेजो!\nउदाहरण: /predict 1.2 2.4 1.5 0.9 2.1")
+async def predict(update: Update, context):
+    multipliers = context.args
+    if len(multipliers) < 5:
+        await update.message.reply_text("कम से कम 5 multipliers दो! जैसे: `/predict 1.5 2.3 1.2 0.9 3.4`", parse_mode="Markdown")
         return
-    try:
-        nums = [float(x) for x in context.args]
-        avg = sum(nums) / len(nums)
-        if avg < 2:
-            msg = "🔴 Pattern Weak लग रहा है!\n🚫 Avoid Betting"
-        elif avg < 3:
-            msg = "🟡 Medium Pattern\n⏳ Wait or Low Bet"
-        else:
-            msg = "✅ Strong Pattern!\n🟢 Safe Bet कर सकते हो"
-        await update.message.reply_text(msg)
-    except:
-        await update.message.reply_text("❌ Invalid input! सभी multipliers नंबर में होने चाहिए")
+    result = predict_from_multipliers(multipliers)
+    await update.message.reply_text(f"🔍 Prediction: {result}")
 
-# ===== /ocr =====
-async def ocr(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message.photo:
-        await update.message.reply_text("📷 कृपया Aviator screenshot भेजो OCR के लिए।")
-        return
-
+async def ocr(update: Update, context):
     photo = update.message.photo[-1]
-    file = await context.bot.get_file(photo.file_id)
-    image_path = "screenshot.jpg"
-    await file.download_to_drive(image_path)
+    file = await photo.get_file()
+    file_path = "screenshot.jpg"
+    await file.download_to_drive(file_path)
+    multipliers = extract_multipliers_from_image(file_path)
+    if not multipliers:
+        await update.message.reply_text("❌ OCR से multipliers नहीं मिल पाए!")
+        return
+    result = predict_from_multipliers(multipliers)
+    await update.message.reply_text(f"📸 OCR Prediction: {result}\n\nMultipliers: {multipliers}")
 
-    try:
-        img = cv2.imread(image_path)
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        text = pytesseract.image_to_string(gray)
+async def accuracy(update: Update, context):
+    acc = load_accuracy()
+    total = acc['correct'] + acc['wrong']
+    if total == 0:
+        percent = 0
+    else:
+        percent = round((acc['correct'] / total) * 100, 2)
+    await update.message.reply_text(f"✅ Accuracy: {percent}%\n\nCorrect: {acc['correct']}, Wrong: {acc['wrong']}")
 
-        # Filter only numbers (with decimal point)
-        multipliers = [float(x) for x in text.replace('x', '').split() if x.replace('.', '', 1).isdigit()]
-        if len(multipliers) < 5:
-            await update.message.reply_text("❌ कम से कम 5 multipliers चाहिए OCR से!\nस्पष्ट screenshot भेजो.")
-            return
-
-        avg = sum(multipliers[:10]) / min(10, len(multipliers))
-        if avg < 2:
-            msg = "🔴 Weak Pattern (OCR)\n🚫 Avoid Betting"
-        elif avg < 3:
-            msg = "🟡 Medium Pattern (OCR)\n⏳ Wait or Small Bet"
-        else:
-            msg = "✅ Strong Pattern (OCR)\n🟢 Safe Bet Based on Screenshot!"
-        await update.message.reply_text(msg)
-    except Exception as e:
-        await update.message.reply_text(f"❌ OCR Failed: {str(e)}")
-
-# ===== /accuracy =====
-async def accuracy(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    data = load_accuracy()
-    total = data['correct'] + data['wrong']
-    percent = (data['correct'] / total * 100) if total > 0 else 0
-    await update.message.reply_text(f"📊 Accuracy:\n✅ सही: {data['correct']}\n❌ गलत: {data['wrong']}\n🎯 Percent: {percent:.2f}%")
-
-# ===== Run Bot =====
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("predict", predict))
-app.add_handler(CommandHandler("ocr", ocr))
 app.add_handler(CommandHandler("accuracy", accuracy))
-app.run_polling()
+app.add_handler(MessageHandler(filters.PHOTO, ocr))
+
+if __name__ == "__main__":
+    print("✅ Bot चल रहा है...")
+    app.run_polling()
