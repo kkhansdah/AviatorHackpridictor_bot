@@ -1,10 +1,6 @@
 python-telegram-bot==20.3
-requests
-beautifulsoup4
-playwright
-asyncio
-python-dotenv
+opencv-python-headless
 pytesseract
-opencv-python
 numpy
 Pillow
+python-dotenv
