@@ -1,6 +1,7 @@
-python-telegram-bot==20.3
-opencv-python-headless
-pytesseract
-numpy
-Pillow
-python-dotenv
+
+pyTelegramBotAPI
+requests
+beautifulsoup4
+easyocr
+matplotlib
+torch
